@@ -1,5 +1,5 @@
 {
-  "name": "Time Tracker — Brinov",
+  "name": "Time Tracker",
   "short_name": "Time Tracker",
   "description": "Cronômetro de tarefas com controle de horas e valor por hora.",
   "start_url": "./index.html",
