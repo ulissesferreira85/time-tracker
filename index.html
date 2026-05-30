@@ -243,6 +243,18 @@
 
   try { entries = JSON.parse(localStorage.getItem('tt_entries') || '[]'); } catch(e) {}
 
+  // --- Persistência do cronômetro ativo (sobrevive a recarregamento/troca de aba no Teams) ---
+  // Guarda { startTime, mode: 'new'|'resume', entryId, name, tag, project }
+  function saveActive(state) {
+    try {
+      if (state) localStorage.setItem('tt_active', JSON.stringify(state));
+      else localStorage.removeItem('tt_active');
+    } catch(e) {}
+  }
+  function loadActive() {
+    try { return JSON.parse(localStorage.getItem('tt_active') || 'null'); } catch(e) { return null; }
+  }
+
   const rateInput = document.getElementById('hourly-rate');
   rateInput.value = localStorage.getItem('tt_rate') || '';
 
@@ -394,6 +406,8 @@
     document.getElementById('btn-start').disabled = true;
     document.getElementById('btn-stop').disabled = false;
 
+    saveActive({ startTime: startTime, mode: 'resume', entryId: id });
+
     timerInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       document.getElementById('timer-display').textContent = fmtS(elapsed);
@@ -412,6 +426,7 @@
     if (activeEntryId !== id || !timerInterval) return;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     clearInterval(timerInterval); timerInterval = null;
+    saveActive(null);
     const entry = entries.find(e=>e.id===id);
     if (entry) { entry.secs = elapsed; entry.ts = Date.now(); }
     activeEntryId = null;
@@ -437,6 +452,13 @@
     startTime = Date.now();
     document.getElementById('btn-start').disabled = true;
     document.getElementById('btn-stop').disabled = false;
+    saveActive({
+      startTime: startTime,
+      mode: 'new',
+      name: document.getElementById('task-name').value.trim(),
+      tag: document.getElementById('task-tag').value,
+      project: document.getElementById('task-project').value.trim()
+    });
     timerInterval = setInterval(() => {
       document.getElementById('timer-display').textContent = fmtS(Math.floor((Date.now()-startTime)/1000));
     }, 1000);
@@ -446,6 +468,7 @@
     if (!timerInterval) return;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     clearInterval(timerInterval); timerInterval = null;
+    saveActive(null);
     document.getElementById('timer-display').textContent = '00:00:00';
     document.getElementById('btn-start').disabled = false;
     document.getElementById('btn-stop').disabled = true;
@@ -541,7 +564,63 @@
     reader.readAsText(file);
   }
 
+  // Restaura um cronômetro que estava rodando quando o app foi descarregado
+  // (troca de aba no Teams, fechamento, recarregamento). Recalcula pelo timestamp.
+  function restoreActive() {
+    const st = loadActive();
+    if (!st || !st.startTime) return;
+    startTime = st.startTime;
+
+    if (st.mode === 'resume') {
+      const entry = entries.find(e => e.id === st.entryId);
+      if (!entry) { saveActive(null); return; } // entrada removida; descarta estado
+      activeEntryId = st.entryId;
+      document.getElementById('task-name').value = entry.name || '';
+      document.getElementById('task-tag').value = entry.tag || 'trabalho';
+      document.getElementById('task-project').value = entry.project || '';
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled = false;
+      const id = st.entryId;
+      timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('timer-display').textContent = fmtS(elapsed);
+        const durEl = document.getElementById('dur-' + id);
+        if (durEl) durEl.textContent = fmtHM(elapsed);
+        const valEl = document.getElementById('val-' + id);
+        if (valEl && getRate() > 0) valEl.textContent = fmtBRL(calcVal(elapsed));
+      }, 1000);
+    } else {
+      activeEntryId = null;
+      document.getElementById('task-name').value = st.name || '';
+      document.getElementById('task-tag').value = st.tag || 'trabalho';
+      document.getElementById('task-project').value = st.project || '';
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled = false;
+      timerInterval = setInterval(() => {
+        document.getElementById('timer-display').textContent = fmtS(Math.floor((Date.now()-startTime)/1000));
+      }, 1000);
+    }
+    // mostra imediatamente, sem esperar 1s
+    document.getElementById('timer-display').textContent = fmtS(Math.floor((Date.now()-startTime)/1000));
+  }
+
   render();
+  restoreActive();
+
+  // Ao voltar o foco para a aba (ex.: retornar de um chat no Teams), atualiza o display
+  // na hora, sem esperar o próximo tick do setInterval.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && timerInterval && startTime) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      document.getElementById('timer-display').textContent = fmtS(elapsed);
+      if (activeEntryId) {
+        const durEl = document.getElementById('dur-' + activeEntryId);
+        if (durEl) durEl.textContent = fmtHM(elapsed);
+        const valEl = document.getElementById('val-' + activeEntryId);
+        if (valEl && getRate() > 0) valEl.textContent = fmtBRL(calcVal(elapsed));
+      }
+    }
+  });
 
   // Registro do service worker (PWA instalável + offline)
   if ('serviceWorker' in navigator) {
