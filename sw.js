@@ -1,5 +1,5 @@
 // Service worker — cache offline simples (cache-first com fallback de rede)
-const CACHE = 'time-tracker-v2';
+const CACHE = 'time-tracker-v3';
 const ASSETS = [
   './',
   './index.html',
